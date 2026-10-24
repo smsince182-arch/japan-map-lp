@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>日本地図LP</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+
+<style>
+html,body{
+    margin:0;
+    padding:0;
+    height:100%;
+    font-family:sans-serif;
+}
+
+h1{
+    margin:0;
+    padding:15px;
+    text-align:center;
+    background:#222;
+    color:white;
+}
+
+#map{
+    width:100%;
+    height:600px;
+}
+#filters{
+    display:flex;
+    justify-content:center;
+    gap:10px;
+    padding:10px;
+    background:#f5f5f5;
+    flex-wrap:wrap;
+}
+
+#filters select,
+#filters button{
+    padding:8px 12px;
+    font-size:14px;
+    border:1px solid #ccc;
+    border-radius:5px;
+}
+
+#shopSearch{
+    padding:8px 12px;
+    font-size:14px;
+    border:1px solid #ccc;
+    border-radius:5px;
+    width:180px;
+}
+
+#resultCount{
+    text-align:center;
+    padding:8px;
+    font-weight:bold;
+    background:#fafafa;
+    border-bottom:1px solid #ddd;
+}
+</style>
+
+</head>
+
+<body>
+
+<div id="loginScreen" style="
+position:fixed;
+top:0;
+left:0;
+width:100%;
+height:100%;
+background:#111;
+display:flex;
+justify-content:center;
+align-items:center;
+z-index:9999;
+">
+
+<div style="
+background:white;
+padding:30px;
+border-radius:10px;
+text-align:center;
+width:320px;
+">
+
+<h2>🔒 パスワード認証</h2>
+
+<input
+type="password"
+id="password"
+placeholder="パスワード"
+style="width:100%;padding:10px;font-size:16px;">
+
+<br><br>
+
+<button onclick="login()" style="
+padding:10px 20px;
+font-size:16px;
+">
+ログイン
+</button>
+
+<p id="error" style="color:red;"></p>
+
+</div>
+
+</div>
+
+<div id="portal" style="display:none;">
+
+<h1>日本地図LP</h1>
+
+<div id="filters">
+
+<input
+    type="text"
+    id="shopSearch"
+    placeholder="店舗名で検索"
+>
+
+    <select id="prefecture">
+        <option value="">都道府県</option>
+    </select>
+
+    <select id="city">
+        <option value="">市区町村</option>
+    </select>
+
+    <select id="type">
+        <option value="">業種</option>
+    </select>
+
+    <button id="reset">リセット</button>
+
+    </div> 
+
+<div id="resultCount">
+表示店舗：0件
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+<script>
+
+const map = L.map("map").setView([36.2048,138.2529],5);
+
+let allShops = [];
+let markerLayer = L.layerGroup().addTo(map);
+
+const prefectureSelect = document.getElementById("prefecture");
+const citySelect = document.getElementById("city");
+const typeSelect = document.getElementById("type");
+const resultCount = document.getElementById("resultCount");
+
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+    attribution:"© OpenStreetMap contributors"
+}).addTo(map);
+
+Papa.parse(
+"https://docs.google.com/spreadsheets/d/e/2PACX-1vRePCHUWj1ClL-uVuGRZCqox0rDUg6RvL_IUh6iNbeug5hnkoLNPvPjTQVpSdGWIEGSK1aAAMsYXqG6/pub?gid=0&single=true&output=csv",
+{
+
+download:true,
+
+header:true,
+
+complete:function(results){
+    // CSVデータを保存
+    allShops = results.data.filter(shop =>
+        shop["緯度"] && shop["経度"]
+    );
+
+    // 都道府県一覧
+    const prefectures = [...new Set(
+        allShops.map(shop => shop["都道府県"])
+    )].sort();
+
+    prefectureSelect.innerHTML =
+        '<option value="">都道府県</option>';
+
+    prefectures.forEach(pref=>{
+
+        prefectureSelect.innerHTML +=
+            `<option value="${pref}">${pref}</option>`;
+
+    });
+
+    // 市区町村更新
+    function updateCities(){
+
+        citySelect.innerHTML =
+            '<option value="">市区町村</option>';
+
+        const cities = [...new Set(
+
+            allShops
+            .filter(shop=>
+
+                !prefectureSelect.value ||
+
+                shop["都道府県"]===prefectureSelect.value
+
+            )
+            .map(shop=>shop["市区町村"])
+
+        )].sort();
+
+        cities.forEach(city=>{
+
+            citySelect.innerHTML +=
+                `<option value="${city}">${city}</option>`;
+
+        });
+
+    }
+        // 業種更新
+    function updateTypes(){
+
+        typeSelect.innerHTML =
+            '<option value="">業種</option>';
+
+        const types = [...new Set(
+
+            allShops
+            .filter(shop=>
+
+                (!prefectureSelect.value ||
+                shop["都道府県"]===prefectureSelect.value)
+
+                &&
+
+                (!citySelect.value ||
+                shop["市区町村"]===citySelect.value)
+
+            )
+            .map(shop=>shop["業種"])
+
+        )].sort();
+
+        types.forEach(type=>{
+
+            typeSelect.innerHTML +=
+                `<option value="${type}">${type}</option>`;
+
+        });
+
+    }
+        // 地図更新
+        map.invalidateSize();
+    function drawMarkers(){
+
+        markerLayer.clearLayers();
+
+        console.log("drawMarkersが呼ばれた");
+        const groups = {};
+const bounds = [];
+     allShops
+.filter(shop =>
+
+    (!prefectureSelect.value ||
+    shop["都道府県"] === prefectureSelect.value)
+
+    &&
+
+    (!citySelect.value ||
+    shop["市区町村"] === citySelect.value)
+
+    &&
+
+    (!typeSelect.value ||
+    shop["業種"] === typeSelect.value)
+
+    &&
+
+    (!document.getElementById("shopSearch").value ||
+    shop["店名"].toLowerCase().includes(
+        document.getElementById("shopSearch").value.toLowerCase()
+    ))
+
+)
+.forEach(shop=>{
+        
+            const key = shop["緯度"] + "," + shop["経度"];
+
+            if(!groups[key]){
+                groups[key]=[];
+            }
+
+            groups[key].push(shop);
+
+        });
+
+        Object.values(groups).forEach(shops=>{
+
+            const lat = Number(shops[0]["緯度"]);
+            const lng = Number(shops[0]["経度"]);
+
+            let popup = "";
+
+            shops.forEach(shop=>{
+
+                popup += `
+                <div style="margin-bottom:15px;">
+                    <h3>${shop["店名"]}</h3>
+
+                    <b>都道府県：</b>${shop["都道府県"]}<br>
+                    <b>市区町村：</b>${shop["市区町村"]}<br>
+                    <b>エリア：</b>${shop["エリア"]}<br>
+                    <b>業種：</b>${shop["業種"]}<br>
+
+                    <a href="${shop["URL"]}" target="_blank">
+                        求人LPを見る
+                    </a>
+                </div>
+                <hr>
+                `;
+
+            });
+
+            bounds.push([lat, lng]);
+
+            L.marker([lat,lng])
+                .addTo(markerLayer)
+                .bindPopup(popup);
+
+        });
+
+        resultCount.innerHTML =
+            `表示店舗：${Object.values(groups).reduce((n,g)=>n+g.length,0)}件`;
+
+    // if (bounds.length > 0) {
+    // map.fitBounds(bounds, { padding: [40, 40] });
+// }
+
+}
+        // 初期表示
+    updateCities();
+    updateTypes();
+    drawMarkers();
+
+    // 都道府県変更
+    prefectureSelect.addEventListener("change",()=>{
+
+        updateCities();
+        updateTypes();
+        drawMarkers();
+
+    });
+
+    // 市区町村変更
+    citySelect.addEventListener("change",()=>{
+
+        updateTypes();
+        drawMarkers();
+
+    });
+
+    // 業種変更
+    typeSelect.addEventListener("change",()=>{
+
+        drawMarkers();
+
+    });
+
+document.getElementById("shopSearch").addEventListener("input", () => {
+    drawMarkers();
+});
+
+    // リセット
+    document.getElementById("reset").addEventListener("click",()=>{
+
+        prefectureSelect.value="";
+        citySelect.value="";
+        typeSelect.value="";
+
+        updateCities();
+        updateTypes();
+        drawMarkers();
+
+    });
+}
+
+});
+function login(){
+
+const PASS = "ワンピースは実在する";
+console.log(PASS);
+
+const input = document.getElementById("password").value;
+
+if(input === PASS){
+
+document.getElementById("loginScreen").style.display = "none";
+document.getElementById("portal").style.display = "block";
+
+setTimeout(() => {
+    map.invalidateSize(true);
+    map.setZoom(5);
+    map.panTo([36.2048,138.2529]);
+},300);
+}else{
+
+document.getElementById("error").innerText = "パスワードが違います";
+
+}
+
+}
+</script>
+</div>
+</body>
+</html>
