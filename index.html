@@ -279,10 +279,26 @@ const bounds = [];
 
     &&
 
-    (!document.getElementById("shopSearch").value ||
-    shop["店名"].toLowerCase().includes(
-        document.getElementById("shopSearch").value.toLowerCase()
-    ))
+   (!document.getElementById("shopSearch").value ||
+  [
+    shop["店名"],
+    shop["都道府県"],
+    shop["市区町村"],
+    shop["エリア"],
+    shop["業種"]
+  ].some(value => {
+    const normalize = text => String(text || "")
+      .normalize("NFKC")
+      .toLowerCase()
+      .replace(/[\u30a1-\u30f6]/g, char =>
+        String.fromCharCode(char.charCodeAt(0) - 0x60)
+      );
+
+    return normalize(value).includes(
+      normalize(document.getElementById("shopSearch").value)
+    );
+  })
+)
 
 )
 .forEach(shop=>{
